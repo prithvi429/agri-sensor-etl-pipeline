@@ -1,0 +1,21 @@
+Type Check:
+total_records,invalid_value_type,invalid_battery_type
+30,0.0,0.0
+
+Range Check:
+reading_type,total,out_of_range
+humidity,13,0.0
+temperature,17,0.0
+
+Gaps:
+sensor_id,missing_hours
+sensor_1,1
+sensor_4,0
+sensor_2,1
+sensor_3,1
+sensor_5,0
+
+Profile:
+reading_type,total,pct_missing_value,pct_anomalous
+humidity,13,0.0,0.0
+temperature,17,0.0,0.0

@@ -2,24 +2,22 @@ import duckdb
 import pandas as pd
 from ingestion import EXPECTED_RANGES
 
-
-def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
+def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv", fail_on_error=True):
     """
     Runs data quality checks in DuckDB:
     - Type checks
     - Range checks per reading_type
     - Hourly gaps per sensor
     - Basic profile: missing %, anomalous %
-    Writes a single CSV report.
+    Writes a structured CSV report.
+    Optionally stops pipeline if critical failures.
     """
     if df.empty:
-        # Handle no data case
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("No data to validate\n")
-        print(f"Data quality report saved to {output_path} (no data)")
+        print(f"⚠️ No data to validate, report saved at {output_path}")
         return
 
-    # Copy and prepare data for DuckDB
     work = df.copy()
     work["timestamp_str"] = (
         work["timestamp"].dt.tz_convert("UTC").dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -28,7 +26,7 @@ def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
     con = duckdb.connect()
     con.register("sensor_data", work)
 
-    # ------------------ Type Check ------------------
+    # ---------- TYPE CHECK ----------
     type_check = con.execute("""
         SELECT
           COUNT(*) AS total_records,
@@ -41,7 +39,7 @@ def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
         FROM sensor_data
     """).df()
 
-    # ------------------ Range Check ------------------
+    # ---------- RANGE CHECK ----------
     ranges_rows = [(k, v[0], v[1]) for k, v in EXPECTED_RANGES.items()]
     ranges_df = pd.DataFrame(ranges_rows, columns=["reading_type", "lo", "hi"])
     con.register("ranges", ranges_df)
@@ -58,7 +56,7 @@ def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
         ORDER BY sd.reading_type
     """).df()
 
-    # ------------------ Hourly Gaps ------------------
+    # ---------- HOURLY GAPS ----------
     gaps = con.execute("""
         WITH bounds AS (
             SELECT
@@ -71,7 +69,7 @@ def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
         expected AS (
             SELECT
                 b.sensor_id,
-                gs.generate_series AS ts   -- Extract field from struct
+                gs.generate_series AS ts
             FROM bounds b,
             LATERAL generate_series(b.min_ts, b.max_ts, INTERVAL 1 HOUR) AS gs
         ),
@@ -89,7 +87,7 @@ def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
         GROUP BY e.sensor_id
     """).df()
 
-    # ------------------ Profile ------------------
+    # ---------- PROFILE ----------
     profile = con.execute("""
         SELECT
           reading_type,
@@ -101,15 +99,19 @@ def validate_data(df: pd.DataFrame, output_path="data/data_quality_report.csv"):
         ORDER BY reading_type
     """).df()
 
-    # ------------------ Save Report ------------------
+    # ---------- SAVE CONSOLIDATED REPORT ----------
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("Type Check:\n")
+        f.write("section,details\n")
         type_check.to_csv(f, index=False)
-        f.write("\nRange Check:\n")
         range_check.to_csv(f, index=False)
-        f.write("\nGaps:\n")
         gaps.to_csv(f, index=False)
-        f.write("\nProfile:\n")
         profile.to_csv(f, index=False)
 
     print(f"✅ Data quality report saved to {output_path}")
+
+    # ---------- FAIL FAST (optional) ----------
+    if fail_on_error:
+        if int(type_check["invalid_value_type"][0]) > 0 or int(type_check["invalid_battery_type"][0]) > 0:
+            raise ValueError("❌ Validation failed: Invalid data types detected")
+        if (profile["pct_missing_value"] > 10).any():
+            raise ValueError("❌ Validation failed: Too many missing values")

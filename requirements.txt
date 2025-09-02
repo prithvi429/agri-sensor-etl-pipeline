@@ -1,2 +1,6 @@
-# requirements.txt
-# Add your Python dependencies here
+pandas==2.2.2
+duckdb==1.1.2
+pyarrow==16.1.0
+fastparquet==2024.5.0
+numpy==1.26.4
+pytest==8.2.0

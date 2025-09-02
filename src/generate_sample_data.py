@@ -1,23 +1,24 @@
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 import numpy as np
+from pathlib import Path
 
-# Load your existing raw file
-df = pd.read_parquet("data/raw/2025-06-05.parquet")
+def generate_demo_files():
+    Path("data/raw").mkdir(parents=True, exist_ok=True)
 
-# Function to shift timestamp and save as new file
-def make_new_file(df, days_shift, out_file):
-    new_df = df.copy()
-    # shift timestamp
-    new_df["timestamp"] = pd.to_datetime(new_df["timestamp"]) + pd.Timedelta(days=days_shift)
-    # add small noise to values so files are not identical
-    new_df["value"] = new_df["value"] * (1 + 0.05 * np.random.randn(len(new_df)))
-    # save as parquet
-    table = pa.Table.from_pandas(new_df)
-    pq.write_table(table, out_file)
-    print(f"✅ Created {out_file}")
+    dates = ["2025-06-05", "2025-06-06", "2025-06-07"]
+    sensors = [f"sensor_{i}" for i in range(1, 6)]
 
-# Create 2 more files for demo
-make_new_file(df, 1, "data/raw/2025-06-06.parquet")
-make_new_file(df, 2, "data/raw/2025-06-07.parquet")
+    for d in dates:
+        rows = []
+        for s in sensors:
+            for i in range(10):  # 10 rows per sensor
+                rows.append({
+                    "sensor_id": s,
+                    "timestamp": f"{d}T12:{i:02d}:00Z",
+                    "reading_type": np.random.choice(["temperature", "humidity", "soil_moisture", "light", "battery"]),
+                    "value": float(np.random.uniform(10, 100)),
+                    "battery_level": float(np.random.uniform(20, 100))
+                })
+        df = pd.DataFrame(rows)
+        df.to_parquet(f"data/raw/{d}.parquet")
+    print("✅ Demo raw files generated: 2025-06-05, 2025-06-06, 2025-06-07")
